@@ -14,10 +14,19 @@
 #define APP_VERSION   "TestPowerDown 0001"
 
 // GPIO2 on ESP32
-#define LED_1  LED_BUILTIN
-#define GPIO16  16
+//LED_1 D4(GPIO2)   LED_BUILTIN HERE
+//LED_2 D0(GPIO16)
+#define LED_1  LED_BUILTIN  
 #define LED_ON LOW
 #define LED_OFF (!LED_ON)
+//ENABLE_BP0TORESET (TXD) GPIO2 D4 is used as ENABLE BP0 to reset
+//ENABLE_BP0TORESET (FLASH) GPIO0 D3 is used as ENABLE BP0 to reset
+#define ENABLE_BP0TORESET 2
+//BP_0 (MOSI)   D7   GPIO12 is Used as BP0 status     
+#define BP_0 13
+
+
+
 
 //enum rst_reason {
 // REASON_DEFAULT_RST = 0, /* normal startup by power on */
@@ -37,10 +46,14 @@ struct savedMemory_t {
   char bottomTxt[16];
 };
 savedMemory_t savedMemory __attribute__ ((section (".noinit")));
-
+bool bp0Status; 
 void setup() {
   resetInfoPtr = ESP.getResetInfoPtr();
-
+  pinMode(BP_0,INPUT_PULLUP);
+  bp0Status = digitalRead(BP_0);
+  pinMode(ENABLE_BP0TORESET,OUTPUT);
+  digitalWrite(ENABLE_BP0TORESET, HIGH );
+  
   // init Serial
   Serial.begin(115200);
   Serial.println();
@@ -52,7 +65,8 @@ void setup() {
       Serial.print(F("->boot reason = "));
       Serial.println(resetInfoPtr->reason);
   }
-
+  Serial.print(("bp0Status="));
+  Serial.println(bp0Status);
 
   
   Serial.println(F( "\r\n" APP_VERSION ));
@@ -122,9 +136,67 @@ void loop() {
 
       //  if (resetInfoPtr->reason == REASON_EXT_SYS_RST || resetInfoPtr->reason == REASON_DEEP_SLEEP_AWAKE) {
       Serial.println(F("---->DeepSleep"));
-      digitalWrite( LED_1, LED_OFF );
-      ESP.deepSleep(2000000, RF_DISABLED);
+      //pinMode(ENABLE_BP0TORESET,OUTPUT);
+      digitalWrite(ENABLE_BP0TORESET, LOW );
+      Serial.println(F("---->Enable BP0 to reset"));
+      ESP.deepSleep(5E6, RF_DISABLED);
+//      WiFi.suspend();
+//      WiFi.resume();
+int compteur; 
+    system_rtc_mem_write(65, &compteur, 2); //offset is 65
+    system_rtc_mem_read(65, &compteur, 2); //offset is 65
     }
-    delay(100);
+    
   }
+  if ( bp0Status != digitalRead(BP_0) ) {
+    bp0Status = !bp0Status;
+    Serial.print(F("BP0="));
+    Serial.println(bp0Status);
+  }
+  delay(10);
 }
+
+//uint32_t calculateCRC32(const uint8_t *data, size_t length) {
+//  uint32_t crc = 0xffffffff;
+//  while (length--) {
+//    uint8_t c = *data++;
+//    for (uint32_t i = 0x80; i > 0; i >>= 1) {
+//      bool bit = crc & 0x80000000;
+//      if (c & i) {
+//        bit = !bit;
+//      }
+//      crc <<= 1;
+//      if (bit) {
+//        crc ^= 0x04c11db7;
+//      }
+//    }
+//  }
+//  return crc;
+//}
+////https://github.com/carCV/CalculateCRC/blob/master/crc32.h
+//#define CRCPOLY_LE 0xedb88320
+///// zlib's CRC32 polynomial
+//  const uint32_t Polynomial = 0xEDB88320;
+//u32  crc32_le(u32 crc, unsigned char const *p, unsigned int len)
+//{
+//    int i;
+//    while (len--) {
+//        crc ^= *p++;
+//        for (i = 0; i < 8; i++)
+//            crc = (crc >> 1) ^ ((crc & 1) ? CRCPOLY_LE : 0);
+//    }
+//    return crc;
+//}
+///// compute CRC32 (standard algorithm)
+////https://github.com/stbrumme/crc32/blob/master/Crc32.cpp
+//uint32_t crc32_1byte(const void* data, size_t length, uint32_t previousCrc32)
+//{
+//  uint32_t crc = ~previousCrc32; // same as previousCrc32 ^ 0xFFFFFFFF
+//  const uint8_t* current = (const uint8_t*) data;
+//
+//  while (length-- != 0)
+//    crc = (crc >> 8) ^ Crc32Lookup[0][(crc & 0xFF) ^ *current++];
+//
+//  return ~crc; // same as crc ^ 0xFFFFFFFF
+//}
+//#endif
