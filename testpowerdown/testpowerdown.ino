@@ -89,8 +89,9 @@ void setup() {
   Serial.begin(115200);
   Serial.println();
   if (resetInfoPtr->reason == REASON_DEEP_SLEEP_AWAKE ) {
-    Serial.println(F("-> PowerDown 10 min"));
-    ESP.deepSleep(10 * 60 * 1E6 - 187000, RF_DISABLED);
+    Serial.println(F("-> PowerDown 60 min"));
+    ESP.deepSleep(60 * 60 * 1E6 - 187000, RF_DISABLED);  //- 187000 for 10  sec   -06m02s  pour 1H
+    
     while (true) delay(1);
   }
 
