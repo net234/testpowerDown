@@ -16,13 +16,16 @@
 // GPIO2 on ESP32
 //LED_1 D4(GPIO2)   LED_BUILTIN HERE
 //LED_2 D0(GPIO16)
-#define LED_1  LED_BUILTIN  
+#define LED_1  LED_BUILTIN
 #define LED_ON LOW
 #define LED_OFF (!LED_ON)
 //ENABLE_BP0TORESET (TXD) GPIO2 D4 is used as ENABLE BP0 to reset
 //ENABLE_BP0TORESET (FLASH) GPIO0 D3 is used as ENABLE BP0 to reset
-#define ENABLE_BP0TORESET 2
-//BP_0 (MOSI)   D7   GPIO12 is Used as BP0 status     
+//ENABLE_BP0TORESET (MTD0) GPIO15 D8 is used as ENABLE BP0 to reset
+//ENABLE_BP0TORESET (WAKE) GPIO16 D0 is used as ENABLE BP0 to reset
+#define LOCK  LOW
+#define ENABLE_BP0TORESET 15
+//BP_0 (MOSI)   D7   GPIO13 is Used as BP0 status (pullup)
 #define BP_0 13
 
 
@@ -46,14 +49,11 @@ struct savedMemory_t {
   char bottomTxt[16];
 };
 savedMemory_t savedMemory __attribute__ ((section (".noinit")));
-bool bp0Status; 
+bool bp0Status;
 void setup() {
   resetInfoPtr = ESP.getResetInfoPtr();
-  pinMode(BP_0,INPUT_PULLUP);
-  bp0Status = digitalRead(BP_0);
-  pinMode(ENABLE_BP0TORESET,OUTPUT);
-  digitalWrite(ENABLE_BP0TORESET, HIGH );
-  
+
+
   // init Serial
   Serial.begin(115200);
   Serial.println();
@@ -65,10 +65,16 @@ void setup() {
       Serial.print(F("->boot reason = "));
       Serial.println(resetInfoPtr->reason);
   }
-  Serial.print(("bp0Status="));
+  pinMode(BP_0, INPUT);
+  bp0Status = digitalRead(BP_0);
+  Serial.print(("BP_0="));
+  Serial.println(bp0Status);
+  delay(10);
+  bp0Status = digitalRead(BP_0);
+  Serial.print(("BP_0="));
   Serial.println(bp0Status);
 
-  
+
   Serial.println(F( "\r\n" APP_VERSION ));
 
   // check saved memory
@@ -99,6 +105,8 @@ void setup() {
       Serial.print(F("->boot reason = "));
       Serial.println(resetInfoPtr->reason);
   }
+  digitalWrite(ENABLE_BP0TORESET, LOCK );
+  pinMode(ENABLE_BP0TORESET, OUTPUT);
 
   pinMode( LED_1, OUTPUT );
   //pinMode( LED_2, OUTPUT );
@@ -114,6 +122,9 @@ void setup() {
   wifi_fpm_set_sleep_type(LIGHT_SLEEP_T);
   WiFi.forceSleepBegin();  // this do  a WiFiMode OFF  !!! 21ma
 
+  bp0Status = digitalRead(BP_0);
+  Serial.print(("BP_0="));
+  Serial.println(bp0Status);
 
 
 
@@ -127,6 +138,7 @@ void setup() {
   Serial.print(F("compteur = "));
   Serial.println(savedMemory.compteur);
   Serial.println(F("Type S for DeepSleep"));
+  bp0Status = !digitalRead(BP_0);
 }
 
 void loop() {
@@ -135,24 +147,41 @@ void loop() {
     if (aChar == 'S') {
 
       //  if (resetInfoPtr->reason == REASON_EXT_SYS_RST || resetInfoPtr->reason == REASON_DEEP_SLEEP_AWAKE) {
-      Serial.println(F("---->DeepSleep"));
-      //pinMode(ENABLE_BP0TORESET,OUTPUT);
-      digitalWrite(ENABLE_BP0TORESET, LOW );
+//      Serial.println(F("---->DeepSleep"));
+//      pinMode(ENABLE_BP0TORESET, OUTPUT);
+//      //pinMode(ENABLE_BP0TORESET, INPUT);
+//
+//      digitalWrite(ENABLE_BP0TORESET, !LOCK );
       Serial.println(F("---->Enable BP0 to reset"));
       ESP.deepSleep(5E6, RF_DISABLED);
-//      WiFi.suspend();
-//      WiFi.resume();
-int compteur; 
-    system_rtc_mem_write(65, &compteur, 2); //offset is 65
-    system_rtc_mem_read(65, &compteur, 2); //offset is 65
+      //      WiFi.suspend();
+      //      WiFi.resume();
+      int compteur;
+      system_rtc_mem_write(65, &compteur, 2); //offset is 65
+      system_rtc_mem_read(65, &compteur, 2); //offset is 65
     }
-    
+    if (aChar == 'U') {
+
+      Serial.println(F("---->Unlock"));
+      pinMode(ENABLE_BP0TORESET, OUTPUT);
+      //pinMode(ENABLE_BP0TORESET, INPUT);
+
+      digitalWrite(ENABLE_BP0TORESET, !LOCK );
+    }
+    if (aChar == 'L') {
+      Serial.println(F("---->Lock"));
+      pinMode(ENABLE_BP0TORESET, OUTPUT);
+      //pinMode(ENABLE_BP0TORESET, INPUT);
+
+      digitalWrite(ENABLE_BP0TORESET, LOCK );
+    }
   }
   if ( bp0Status != digitalRead(BP_0) ) {
     bp0Status = !bp0Status;
     Serial.print(F("BP0="));
     Serial.println(bp0Status);
   }
+
   delay(10);
 }
 
