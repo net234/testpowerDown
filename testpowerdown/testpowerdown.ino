@@ -22,7 +22,10 @@
 
 //BP_0 (MOSI)   D7   GPIO13 is Used as BP0 status (pullup)
 #define BP_0 13
+#define BP_0_DOWN LOW
 
+#define POWER_ENABLE  16
+#define PE_OFF LOW
 
 
 
@@ -47,8 +50,9 @@
 //savedMemory_t savedMemory __attribute__ ((section (".noinit")));
 
 struct savedRTCmemory_t {
-  float     checkPI;   // initialised to PI value to check POWER_ON Boot
-  uint32_t  bootCounter;
+  float     checkPI;       // initialised to PI value to check POWER_ON Boot
+  uint32_t  bootCounter;   // Number of reboot since power on
+  uint32_t  awakeCounter;  // Number of awake since last Deep Sleep
 } savedRTCmemory;
 
 uint8_t resetReason;  //resetInfoPtr->reason
@@ -56,43 +60,53 @@ uint8_t resetReason;  //resetInfoPtr->reason
 bool bp0Status;
 void setup() {
   // get BP_0 to know if it is a SLEEP_AWAKE or SLEEP_AWAKE_ABORTED
-  pinMode(BP_0, INPUT);
+  //pinMode(BP_0, INPUT_PULLUP);
   bp0Status = digitalRead(BP_0);
   // get reset reason
   rst_info* resetInfoPtr = ESP.getResetInfoPtr();
   resetReason = resetInfoPtr->reason;
   if (bp0Status == LOW &&  resetReason == REASON_DEEP_SLEEP_AWAKE) resetReason = REASON_DEEP_SLEEP_AWAKE_ABORTED;
 
-  
+
 
 
   // init Serial
   Serial.begin(115200);
   Serial.println(F( "\r\n" APP_VERSION ));
-  Serial.print(F("RTC Time="));
-  Serial.println(system_get_rtc_time());
- 
+  //  Serial.print(F("RTC Time="));
+  //  Serial.println(system_get_rtc_time());
+
   //system_rtc_mem_read(10, &savedRTCmemory, sizeof(savedRTCmemory));
   ESP.rtcUserMemoryRead(0, (uint32_t*)&savedRTCmemory, sizeof(savedRTCmemory));
   if (savedRTCmemory.checkPI != float(PI)) {
     Serial.println("Power on boot");
     savedRTCmemory.checkPI = PI;
     savedRTCmemory.bootCounter = 0;
+    savedRTCmemory.awakeCounter = 0;
   } else {
     savedRTCmemory.bootCounter++;
+    savedRTCmemory.awakeCounter++;
   }
-  ESP.rtcUserMemoryWrite(0, (uint32_t*)&savedRTCmemory, sizeof(savedRTCmemory));
-  //system_rtc_mem_write(10, &savedRTCmemory, sizeof(savedRTCmemory));
-  Serial.print("savedRTCmmemory.bootCounter = ");
-  Serial.println(savedRTCmemory.bootCounter);
-  
+
   if (resetReason == REASON_DEEP_SLEEP_AWAKE ) {
     Serial.println(F("-> PowerDown 60 min"));
+    ESP.rtcUserMemoryWrite(0, (uint32_t*)&savedRTCmemory, sizeof(savedRTCmemory));
+    //system_rtc_mem_write(10, &savedRTCmemory, sizeof(savedRTCmemory));
+
     ESP.deepSleep(60 * 60 * 1E6 - 187000, RF_DISABLED);  //- 187000 for 10  sec   -06m02s  pour 1H
 
     while (true) delay(1);
   }
+  // full awake so erase RTC awake Counter
+  uint32_t awakeCounter = savedRTCmemory.awakeCounter;
+  savedRTCmemory.awakeCounter = 0;
+  ESP.rtcUserMemoryWrite(0, (uint32_t*)&savedRTCmemory, sizeof(savedRTCmemory));
+  savedRTCmemory.awakeCounter = awakeCounter;
 
+  Serial.print("savedRTCmmemory.bootCounter = ");
+  Serial.println(savedRTCmemory.bootCounter);
+  Serial.print("savedRTCmmemory.awakeCounter = ");
+  Serial.println(savedRTCmemory.awakeCounter);
 
 
   switch (resetReason) {
@@ -133,8 +147,8 @@ void setup() {
   Serial.print(F("compteur = "));
   Serial.println(savedRTCmemory.bootCounter);
   Serial.println(F("Type S for DeepSleep"));
-  Serial.print(F("RTC Time="));
-  Serial.println(system_get_rtc_time());
+  //  Serial.print(F("RTC Time="));
+  //  Serial.println(system_get_rtc_time());
   bp0Status = !digitalRead(BP_0);
 }
 
@@ -144,27 +158,45 @@ void loop() {
     if (aChar == 'S') {
       Serial.print(F("PowerDown 5 sec"));
       ESP.deepSleep(5 * 1E6, RF_DISABLED);
+
     }
     if (aChar == 'L') {
       Serial.print(F("PowerDown 1 Hour"));
       ESP.deepSleep(60 * 60 * 1E6, RF_DISABLED);
     }
-    // dont work
-    //    if (aChar == 'H') {
-    //      Serial.print(F("Hard reset"));
-    //      pinMode(BP_0, OUTPUT);
-    //      digitalWrite(BP_0, LOW);  //
-    //    }
+
+    if (aChar == 'H') {
+      Serial.println(F("Hard reset"));
+      delay(10);
+      pinMode(POWER_ENABLE, OUTPUT);
+      digitalWrite(POWER_ENABLE, PE_OFF);  //
+      delay(1000);
+      Serial.println(F("Soft Rest"));
+      ESP.reset();
+    }
     if (aChar == 'R') {
       Serial.print(F("Soft reset"));
       ESP.reset();
     }
 
   }
+  static uint32_t lastDown = millis();
   if ( bp0Status != digitalRead(BP_0) ) {
     bp0Status = !bp0Status;
     Serial.print(F("BP0 = "));
     Serial.println(bp0Status);
+    digitalWrite( LED_1 , LED_OFF );
+    delay(100);
+    digitalWrite( LED_1 , LED_ON );
+    if (bp0Status == BP_0_DOWN) {
+      lastDown = millis();
+    } else {
+      if ( millis() - lastDown  > 3000 ) {
+        Serial.print(F("PowerDown 1 Hour"));
+        ESP.deepSleep(60 * 60 * 1E6, RF_DISABLED);
+
+      }
+    }
   }
 
   delay(10);
